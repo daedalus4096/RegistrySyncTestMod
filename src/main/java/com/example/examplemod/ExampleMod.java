@@ -3,10 +3,15 @@ package com.example.examplemod;
 import org.slf4j.Logger;
 
 import com.mojang.logging.LogUtils;
+import com.mojang.serialization.Codec;
+import com.mojang.serialization.codecs.RecordCodecBuilder;
 
 import net.minecraft.client.Minecraft;
+import net.minecraft.core.Registry;
 import net.minecraft.core.registries.Registries;
-import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.resources.ResourceKey;
+import net.minecraft.resources.ResourceLocation;
+import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.food.FoodProperties;
 import net.minecraft.world.item.BlockItem;
 import net.minecraft.world.item.CreativeModeTab;
@@ -30,6 +35,7 @@ import net.minecraftforge.fml.config.ModConfig;
 import net.minecraftforge.fml.event.lifecycle.FMLClientSetupEvent;
 import net.minecraftforge.fml.event.lifecycle.FMLCommonSetupEvent;
 import net.minecraftforge.fml.javafmlmod.FMLJavaModLoadingContext;
+import net.minecraftforge.registries.DataPackRegistryEvent;
 import net.minecraftforge.registries.DeferredRegister;
 import net.minecraftforge.registries.ForgeRegistries;
 import net.minecraftforge.registries.RegistryObject;
@@ -65,6 +71,8 @@ public class ExampleMod
             .displayItems((parameters, output) -> {
                 output.accept(EXAMPLE_ITEM.get()); // Add the example item to the tab. For your own tabs, this method is preferred over the event
             }).build());
+    
+    public static final ResourceKey<Registry<TestRecord>> REGISTRY_KEY = ResourceKey.createRegistryKey(ResourceLocation.fromNamespaceAndPath(MODID, "test_records"));
 
     public ExampleMod()
     {
@@ -132,13 +140,35 @@ public class ExampleMod
     }
     
     @Mod.EventBusSubscriber(modid=MODID)
-    public static class PlayerEvents {
+    public static class ForgeBusEvents {
         @SubscribeEvent
         public static void playerJoinEvent(EntityJoinLevelEvent event) {
             Level level = event.getLevel();
-            if (!level.isClientSide && (event.getEntity() instanceof ServerPlayer player)) {
-                LOGGER.info("Player {} joined level", player.getName().getString());
+            if (event.getEntity() instanceof Player player) {
+                if (!level.isClientSide) {
+                    LOGGER.info("Player {} joined level", player.getName().getString());
+                }
+
+                level.registryAccess().registry(REGISTRY_KEY).ifPresentOrElse(testRegistry -> {
+                    LOGGER.info("Test registry present with {} records", testRegistry.stream().count());
+                }, () -> {
+                    LOGGER.error("Test registry not present!");
+                });
             }
         }
+    }
+    
+    @Mod.EventBusSubscriber(modid=MODID, bus=Mod.EventBusSubscriber.Bus.MOD)
+    public static class ModBusEvents {
+        @SubscribeEvent
+        public static void onNewDatapackRegistry(DataPackRegistryEvent.NewRegistry event) {
+            event.dataPackRegistry(REGISTRY_KEY, TestRecord.DIRECT_CODEC, TestRecord.DIRECT_CODEC);
+        }
+    }
+    
+    public static record TestRecord(ResourceLocation value) {
+        public static final Codec<TestRecord> DIRECT_CODEC = RecordCodecBuilder.create(instance -> instance.group(
+                ResourceLocation.CODEC.fieldOf("value").forGetter(TestRecord::value)
+            ).apply(instance, TestRecord::new));
     }
 }
